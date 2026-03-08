@@ -10,5 +10,9 @@
 </div>
 
 Based on your TownOfUsMira DLL, generates every single Doomsayer type.
+
 For devs like me who are making roles in mods :)
+
 There's probably an easier way to do this but idrc
+
+## THIS PROGRAM WILL BE USELESS TO YOU IF YOU DON'T CREATE MODS FOR [TOU:M](https://github.com/AU-Avengers/TOU-Mira)
