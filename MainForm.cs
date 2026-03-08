@@ -2,36 +2,37 @@ using System.Reflection.PortableExecutable;
 using System.Reflection.Metadata;
 
 namespace DoomsayerTypeListGenerator;
+
 public class MainForm : Form
 {
-    private readonly TextBox pathBox = null!;
-    private readonly Button browseBtn = null!;
-    private readonly Button generateBtn = null!;
-    private readonly RichTextBox outputBox = null!;
-    private readonly Label statusLabel = null!;
+    private readonly Panel topPanel;
+    private readonly TextBox pathBox;
+    private readonly Button browsePathBtn;
+    private readonly CheckedListBox dllList;
+    private readonly Button addDllBtn;
+    private readonly Button removeDllBtn;
+    private readonly Button generateBtn;
+    private readonly Label statusLabel;
+    private readonly RichTextBox outputBox;
 
-    private static readonly string[] TargetNamespaces = new[]
-    {
-    "TownOfUs.Roles.Crewmate",
-    "TownOfUs.Roles.Neutral",
-    "TownOfUs.Roles.Impostor"
-    };
+    private readonly List<string> _dllPaths = new();
+    private int _fixedCount = 0;
+    private string? _baseDllPath;
 
     public MainForm()
     {
         Text = "Doomsayer Type List Generator";
         Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
-        Size = new Size(800, 640);
-        MinimumSize = new Size(600, 480);
+        Size = new Size(800, 680);
+        MinimumSize = new Size(600, 560);
         Font = new Font("Segoe UI", 9f);
         BackColor = Color.FromArgb(30, 30, 30);
         ForeColor = Color.White;
 
-        var topPanel = new Panel
+        topPanel = new Panel
         {
             Dock = DockStyle.Top,
-            Height = 90,
-            Padding = new Padding(12, 10, 12, 8),
+            Height = 218,
             BackColor = Color.FromArgb(40, 40, 40)
         };
 
@@ -39,13 +40,13 @@ public class MainForm : Form
         {
             Text = "Among Us Path:",
             AutoSize = true,
-            Location = new Point(12, 14),
+            Location = new Point(12, 12),
             ForeColor = Color.Silver
         };
 
         pathBox = new TextBox
         {
-            Location = new Point(12, 34),
+            Location = new Point(12, 30),
             Width = 540,
             BackColor = Color.FromArgb(55, 55, 55),
             ForeColor = Color.White,
@@ -53,23 +54,69 @@ public class MainForm : Form
             Font = new Font("Consolas", 9f)
         };
 
-        browseBtn = new Button
+        browsePathBtn = new Button
         {
             Text = "Browse…",
-            Location = new Point(560, 32),
+            Location = new Point(560, 28),
             Width = 80,
             Height = 26,
             BackColor = Color.FromArgb(60, 60, 60),
             ForeColor = Color.White,
-            FlatStyle = FlatStyle.Flat,
+            FlatStyle = FlatStyle.Flat
         };
-        browseBtn.FlatAppearance.BorderColor = Color.Gray;
-        browseBtn.Click += OnBrowse;
+        browsePathBtn.FlatAppearance.BorderColor = Color.Gray;
+        browsePathBtn.Click += OnBrowsePath;
+
+        var dllLabel = new Label
+        {
+            Text = "DLLs to inspect:",
+            AutoSize = true,
+            Location = new Point(12, 64),
+            ForeColor = Color.Silver
+        };
+
+        dllList = new CheckedListBox
+        {
+            Location = new Point(12, 82),
+            Width = 624,
+            Height = 88,
+            BackColor = Color.FromArgb(55, 55, 55),
+            ForeColor = Color.White,
+            BorderStyle = BorderStyle.FixedSingle,
+            Font = new Font("Consolas", 9f),
+            CheckOnClick = true
+        };
+
+        addDllBtn = new Button
+        {
+            Text = "Add…",
+            Location = new Point(644, 82),
+            Width = 80,
+            Height = 26,
+            BackColor = Color.FromArgb(60, 60, 60),
+            ForeColor = Color.White,
+            FlatStyle = FlatStyle.Flat
+        };
+        addDllBtn.FlatAppearance.BorderColor = Color.Gray;
+        addDllBtn.Click += OnAddDll;
+
+        removeDllBtn = new Button
+        {
+            Text = "Remove",
+            Location = new Point(644, 114),
+            Width = 80,
+            Height = 26,
+            BackColor = Color.FromArgb(60, 60, 60),
+            ForeColor = Color.White,
+            FlatStyle = FlatStyle.Flat
+        };
+        removeDllBtn.FlatAppearance.BorderColor = Color.Gray;
+        removeDllBtn.Click += OnRemoveDll;
 
         generateBtn = new Button
         {
             Text = "Generate List",
-            Location = new Point(12, 66),
+            Location = new Point(12, 182),
             Width = 140,
             Height = 28,
             BackColor = Color.FromArgb(0, 120, 215),
@@ -83,8 +130,8 @@ public class MainForm : Form
         statusLabel = new Label
         {
             AutoSize = false,
-            Size = new Size(490, 24),
-            Location = new Point(162, 70),
+            Location = new Point(162, 182),
+            Height = 28,
             ForeColor = Color.Silver,
             Text = "",
             TextAlign = ContentAlignment.MiddleLeft
@@ -92,12 +139,12 @@ public class MainForm : Form
 
         topPanel.Controls.AddRange(new Control[]
         {
-            pathLabel,
-            pathBox,
-            browseBtn,
-            generateBtn,
-            statusLabel
+            pathLabel, pathBox, browsePathBtn,
+            dllLabel, dllList, addDllBtn, removeDllBtn,
+            generateBtn, statusLabel
         });
+
+        topPanel.Resize += OnTopPanelResize;
 
         outputBox = new RichTextBox
         {
@@ -116,6 +163,17 @@ public class MainForm : Form
         DetectPath();
     }
 
+    private void OnTopPanelResize(object? sender, EventArgs e)
+    {
+        var w = topPanel.ClientSize.Width;
+        pathBox.Width = w - 156;
+        browsePathBtn.Left = w - 92;
+        dllList.Width = w - 168;
+        addDllBtn.Left = w - 80 - 12;
+        removeDllBtn.Left = w - 80 - 12;
+        statusLabel.Width = w - 174;
+    }
+
     // Path Detection
     private void DetectPath()
     {
@@ -123,11 +181,46 @@ public class MainForm : Form
         if (found != null)
         {
             pathBox.Text = found;
+            RefreshDllsForPath(found);
             SetStatus("✓ Among Us installation detected automatically.", Color.LightGreen);
         }
         else
         {
             SetStatus("⚠ Could not detect Among Us — please Browse to your install folder.", Color.Orange);
+        }
+    }
+
+    private void RefreshDllsForPath(string amongUsPath)
+    {
+        dllList.Items.Clear();
+        _dllPaths.Clear();
+        _fixedCount = 0;
+        _baseDllPath = null;
+
+        var pluginsDir = Path.Combine(amongUsPath, "BepInEx", "plugins");
+        if (!Directory.Exists(pluginsDir)) return;
+
+        var touMiraDll = Directory
+            .GetFiles(pluginsDir, "TownOfUsMira.dll", SearchOption.AllDirectories)
+            .FirstOrDefault();
+
+        if (touMiraDll != null)
+        {
+            _baseDllPath = touMiraDll;
+            dllList.Items.Add("TownOfUsMira.dll  [base]", isChecked: true);
+            _dllPaths.Add(touMiraDll);
+            _fixedCount++;
+        }
+
+        var remDll = Directory
+            .GetFiles(pluginsDir, "TouMiraRolesExtension.dll", SearchOption.AllDirectories)
+            .FirstOrDefault();
+
+        if (remDll != null)
+        {
+            dllList.Items.Add("TouMiraRolesExtension.dll", isChecked: true);
+            _dllPaths.Add(remDll);
+            _fixedCount++;
         }
     }
 
@@ -144,8 +237,7 @@ public class MainForm : Form
     }
 
     // Browse
-
-    private void OnBrowse(object? sender, EventArgs e)
+    private void OnBrowsePath(object? sender, EventArgs e)
     {
         using var dlg = new OpenFileDialog
         {
@@ -155,23 +247,73 @@ public class MainForm : Form
             CheckPathExists = true,
         };
 
-        if (dlg.ShowDialog() == DialogResult.OK)
+        if (dlg.ShowDialog() != DialogResult.OK) return;
+
+        var folder = Path.GetDirectoryName(dlg.FileName);
+        if (folder == null) return;
+
+        pathBox.Text = folder;
+
+        var pluginsDir = Path.Combine(folder, "BepInEx", "plugins");
+        if (!Directory.Exists(Path.Combine(folder, "BepInEx")))
+            SetStatus("⚠ No BepInEx folder found; is BepInEx installed?", Color.Orange);
+        else if (!Directory.Exists(pluginsDir))
+            SetStatus("⚠ BepInEx found but no plugins folder exists.", Color.Orange);
+        else if (Directory.GetFiles(pluginsDir, "TownOfUsMira.dll", SearchOption.AllDirectories).Length == 0)
+            SetStatus("⚠ BepInEx found but TownOfUsMira.dll not in plugins; is TownOfUs Mira installed?", Color.Orange);
+        else
+            SetStatus("✓ Path set", Color.LightGreen);
+
+        RefreshDllsForPath(folder);
+    }
+
+    private void OnAddDll(object? sender, EventArgs e)
+    {
+        var initialDir = string.Empty;
+        var basePath = pathBox.Text.Trim();
+        if (Directory.Exists(basePath))
         {
-            var folder = Path.GetDirectoryName(dlg.FileName);
-            if (folder != null)
-            {
-                pathBox.Text = folder;
-                var pluginsDir = Path.Combine(folder, "BepInEx", "plugins");
-                if (!Directory.Exists(Path.Combine(folder, "BepInEx")))
-                    SetStatus("⚠ No BepInEx folder found; is BepInEx installed?", Color.Orange);
-                else if (!Directory.Exists(pluginsDir))
-                    SetStatus("⚠ BepInEx found but no plugins folder exists.", Color.Orange);
-                else if (Directory.GetFiles(pluginsDir, "TownOfUsMira.dll", SearchOption.AllDirectories).Length == 0)
-                    SetStatus("⚠ BepInEx found but TownOfUsMira.dll not in plugins; is TownOfUs Mira installed?", Color.Orange);
-                else
-                    SetStatus("✓ Path set", Color.LightGreen);
-            }
+            var candidate = Path.Combine(basePath, "BepInEx", "plugins");
+            if (Directory.Exists(candidate))
+                initialDir = candidate;
         }
+
+        using var dlg = new OpenFileDialog
+        {
+            Title = "Select a plugin DLL to add",
+            Filter = "DLL files|*.dll|All files|*.*",
+            CheckFileExists = true,
+            CheckPathExists = true,
+            InitialDirectory = initialDir,
+            Multiselect = true
+        };
+
+        if (dlg.ShowDialog() != DialogResult.OK) return;
+
+        foreach (var file in dlg.FileNames)
+        {
+            if (_dllPaths.Contains(file, StringComparer.OrdinalIgnoreCase)) continue;
+            dllList.Items.Add(Path.GetFileName(file), isChecked: true);
+            _dllPaths.Add(file);
+        }
+    }
+
+    private void OnRemoveDll(object? sender, EventArgs e)
+    {
+        var toRemove = dllList.SelectedIndices
+            .Cast<int>()
+            .Where(i => i >= _fixedCount)
+            .OrderByDescending(i => i)
+            .ToList();
+
+        foreach (var i in toRemove)
+        {
+            dllList.Items.RemoveAt(i);
+            _dllPaths.RemoveAt(i);
+        }
+
+        if (toRemove.Count == 0 && dllList.SelectedIndex >= 0)
+            SetStatus("⚠ Fixed entries (TOU:M, REM) cannot be removed — uncheck them instead.", Color.Orange);
     }
 
     /// <summary>
@@ -223,7 +365,8 @@ public class MainForm : Form
                     if (found != null)
                         return found;
                 }
-                catch {
+                catch
+                {
                     // Ignored
                 }
             }
@@ -237,72 +380,88 @@ public class MainForm : Form
     {
         outputBox.Clear();
 
-        var amongUsPath = pathBox.Text.Trim();
-        if (!Directory.Exists(amongUsPath))
+        var checkedPaths = dllList.CheckedIndices
+            .Cast<int>()
+            .Select(i => _dllPaths[i])
+            .Where(File.Exists)
+            .ToList();
+
+        if (checkedPaths.Count == 0)
         {
-            SetStatus("❌ Among Us path not found.", Color.OrangeRed);
+            SetStatus("❌ No DLLs selected or none found on disk.", Color.OrangeRed);
             return;
         }
 
-        var pluginsDir = Path.Combine(amongUsPath, "BepInEx", "plugins");
-        if (!Directory.Exists(pluginsDir))
-        {
-            SetStatus("❌ BepInEx/plugins folder not found.", Color.OrangeRed);
-            return;
-        }
-
-        var townOfUsDll = Directory
-            .GetFiles(pluginsDir, "TownOfUsMira.dll", SearchOption.AllDirectories)
-            .FirstOrDefault();
-
-        if (townOfUsDll == null)
-        {
-            SetStatus("❌ TownOfUsMira.dll not found in BepInEx/plugins.", Color.OrangeRed);
-            return;
-        }
-
-        SetStatus($"⏳ Inspecting {Path.GetFileName(townOfUsDll)}…", Color.Silver);
+        SetStatus($"⏳ Inspecting {checkedPaths.Count} DLL(s)…", Color.Silver);
         generateBtn.Enabled = false;
         Application.DoEvents();
 
         try
         {
-            var (roles, enumValues) = InspectAssembly(townOfUsDll);
+            var allRoles = new List<RoleInfo>();
+            var allEnumValues = new Dictionary<int, string>();
 
-            if (enumValues.Count == 0)
+            foreach (var path in checkedPaths)
+            {
+                var (roles, enumValues) = InspectAssembly(path);
+                allRoles.AddRange(roles);
+                foreach (var kv in enumValues)
+                    allEnumValues.TryAdd(kv.Key, kv.Value);
+            }
+
+            if (allEnumValues.Count == 0)
                 Append("⚠  Could not locate DoomableType enum, showing raw int values.\n\n", Color.Orange);
 
-            if (roles.Count == 0)
+            if (allRoles.Count == 0)
             {
                 Append("No IDoomable roles found in target namespaces.\n", Color.OrangeRed);
                 SetStatus("Found no results.", Color.Silver);
                 return;
             }
 
-            var grouped = roles.GroupBy(r => r.DoomTypeValue).OrderBy(g => g.Key);
+            var grouped = allRoles.GroupBy(r => r.DoomTypeValue).OrderBy(g => g.Key);
 
             foreach (var group in grouped)
             {
-                var groupLabel = enumValues.TryGetValue(group.Key, out var eName)
+                var groupLabel = allEnumValues.TryGetValue(group.Key, out var eName)
                     ? eName : $"Unknown ({group.Key})";
 
                 Append($"── {groupLabel} ", Color.FromArgb(100, 180, 255));
                 Append($"({group.Count()} role{(group.Count() == 1 ? "" : "s")})\n", Color.Gray);
 
-                foreach (var nsGroup in group.GroupBy(r => r.Namespace).OrderBy(g => g.Key))
+                var byNs = group
+                    .GroupBy(r => r.NamespaceShort)
+                    .OrderBy(g => g.Key);
+
+                foreach (var nsGroup in byNs)
                 {
-                    Append($"  [{nsGroup.Key.Split('.').Last()}]\n", Color.FromArgb(180, 180, 100));
+                    Append($"  [{nsGroup.Key}]\n", Color.FromArgb(180, 180, 100));
+
                     foreach (var role in nsGroup.OrderBy(r => r.TypeName))
                     {
-                        var displayName = role.TypeName.EndsWith("Role") ? role.TypeName[..^4] : role.TypeName;
-                        Append($"    • {displayName}\n", Color.White);
+                        var displayName = role.TypeName.EndsWith("Role")
+                            ? role.TypeName[..^4]
+                            : role.TypeName;
+
+                        bool isBase = string.Equals(role.SourceDll, _baseDllPath, StringComparison.OrdinalIgnoreCase);
+
+                        if (isBase)
+                        {
+                            Append($"    • {displayName}\n", Color.White);
+                        }
+                        else
+                        {
+                            var originName = Path.GetFileNameWithoutExtension(role.SourceDll);
+                            Append($"    • {displayName} ", Color.FromArgb(255, 200, 100));
+                            Append($"(Origin: {originName})\n", Color.FromArgb(160, 130, 70));
+                        }
                     }
                 }
 
                 Append("\n", Color.White);
             }
 
-            SetStatus($"✓ Found {roles.Count} IDoomable role(s) across {grouped.Count()} DoomableType value(s).", Color.LightGreen);
+            SetStatus($"✓ Found {allRoles.Count} IDoomable role(s) across {grouped.Count()} DoomableType value(s).", Color.LightGreen);
         }
         catch (Exception ex)
         {
@@ -317,7 +476,7 @@ public class MainForm : Form
 
     // Assembly Inspector
 
-    private sealed record RoleInfo(string TypeName, string Namespace, int DoomTypeValue);
+    private sealed record RoleInfo(string TypeName, string Namespace, string NamespaceShort, string SourceDll, int DoomTypeValue);
 
     private static (List<RoleInfo> roles, Dictionary<int, string> enumValues) InspectAssembly(string dllPath)
     {
@@ -333,11 +492,11 @@ public class MainForm : Form
         foreach (var typeHandle in reader.TypeDefinitions)
         {
             var typeDef = reader.GetTypeDefinition(typeHandle);
-            var ns = reader.GetString(typeDef.Namespace);
-            if (!TargetNamespaces.Contains(ns)) continue;
-
             var typeName = reader.GetString(typeDef.Name);
             if (typeName.Contains('<') || typeName.Contains('>')) continue;
+
+            var ns = reader.GetString(typeDef.Namespace);
+            var nsShort = ns.Contains('.') ? ns.Split('.').Last() : ns;
 
             bool isDoomable = typeDef.GetInterfaceImplementations().Any(ih =>
                 ResolveTypeName(reader, reader.GetInterfaceImplementation(ih).Interface) == "IDoomable");
@@ -348,7 +507,7 @@ public class MainForm : Form
                          ?? WalkBaseTypes(reader, peReader, typeDef);
 
             if (value.HasValue)
-                roles.Add(new RoleInfo(typeName, ns, value.Value));
+                roles.Add(new RoleInfo(typeName, ns, nsShort, dllPath, value.Value));
         }
 
         return (roles, enumValues);
@@ -417,7 +576,8 @@ public class MainForm : Form
                 }
             }
         }
-        catch {
+        catch
+        {
             //
         }
         return null;
